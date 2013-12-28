@@ -71,4 +71,9 @@ public class CatchingFileSender {
 		
 		return fileObject;
 	}
+	
+	 public static void main(String... args) {
+	        CatchingFileSender fileSender = new CatchingFileSender();
+	        fileSender.sendUdpLoop();
+	    }
 }
