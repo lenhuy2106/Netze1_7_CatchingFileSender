@@ -1,7 +1,10 @@
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
@@ -10,28 +13,34 @@ import java.net.UnknownHostException;
 
 public class CatchingFileSender {
 	
-	
 	private DatagramSocket socket = null;
-	
-	// muss dasselbe FileObject-Klasse sein wie beim Empfänger
-	private FileObject fileObject = null;
-	
-	// brauchen keine sources - einfach die datei im selben verzeichnis wie das progg
-	
+	private FileObject fileObject = null;	// muss dasselbe FileObject-Klasse sein wie beim Empfänger
 	private String hostname = "localhost";
-	
+	private int port = 9876;
+	// brauchen keine sources - einfach die datei im selben verzeichnis wie das progg
+		
 	public void sendUdpLoop() {
 		
 		try {
+			
 			socket = new DatagramSocket();
 			InetAddress ipAddress = InetAddress.getByName(hostname);
-			byte[] data = new byte[1024];
+			byte[] incomingData = new byte[1024];
 			fileObject = readObject();
-			
-			
-	// -- attribute setzen
-			
-			
+			ByteArrayOutputStream byteArrayOS = new ByteArrayOutputStream();
+			ObjectOutputStream os = new ObjectOutputStream(byteArrayOS);
+			os.writeObject(fileObject);
+			byte[] data = byteArrayOS.toByteArray();
+			DatagramPacket sendPacket = new DatagramPacket(data,data.length,ipAddress, port);
+			socket.send(sendPacket);
+			System.out.println("File sent");
+			DatagramPacket incomingPacket = new DatagramPacket(incomingData, incomingData.length);
+			socket.receive(incomingPacket);
+			String response = new String(incomingPacket.getData());
+			System.out.println("Response from server:"+response);
+			Thread.sleep(2000);
+			System.exit(0);
+
 	    } catch (UnknownHostException e) {
 	        e.printStackTrace();
 	    } catch (SocketException e) {
