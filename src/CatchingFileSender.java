@@ -1,4 +1,6 @@
+import java.io.DataInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -36,24 +38,37 @@ public class CatchingFileSender {
 	        e.printStackTrace();
 	    } catch (IOException e) {
 	        e.printStackTrace();
-	    } catch (InterruptedException e) {
-	        e.printStackTrace();
-	    }	
-	
+	    }
 	}
-}
 	
-// gibt ein fileObject zurück
-private FileObject readObject() {
-	FileObject fileObject = new FileObject();
-	String fileName = "fileToSend";
-
-	// fileName = path
-	File file = new File(fileName);
+	// gibt ein fileObject zurück
+	private FileObject readObject() {
+		FileObject fileObject = new FileObject();
+		String fileName = "fileToSend";
 	
-	// testet obs eine file ist
-	if (file.isFile()) {
-	
-	// ...	
+		// fileName = path
+		File file = new File(fileName);
 		
+		// testet obs eine file ist
+		if (file.isFile()) {
+		
+			try{
+				DataInputStream diStream = new DataInputStream(new FileInputStream(file));
+				long len = (int)file.length();
+				byte[] fileBytes = new byte[(int) len];
+				int read = 0;
+				int numRead = 0;
+				while(read < fileBytes.length && (numRead = diStream.read(fileBytes,read,fileBytes.length - read)) >= 0){
+					read = read +numRead;
+				}
+				fileObject.setFileSize(len);
+				fileObject.setData(fileBytes);
+				
+			} catch (Exception e){
+                e.printStackTrace();
+            }
+		}
+		
+		return fileObject;
+	}
 }
