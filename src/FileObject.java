@@ -10,7 +10,6 @@ public class FileObject implements Serializable {
 
 	public FileObject() {}
 	
-	// wenn du was ändern musst, sags mir auch
 	private static final long serialVersionUID = 4523627L; // same version ?
 	
 	// recognizing errors
