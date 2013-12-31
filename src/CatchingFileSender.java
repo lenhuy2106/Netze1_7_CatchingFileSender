@@ -9,59 +9,69 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.net.UnknownHostException;
-
+import java.util.zip.CRC32;
 
 public class CatchingFileSender {
 	
 	private DatagramSocket socket = null;
-	private FileObject[] fileObject = null;	// muss dasselbe FileObject-Klasse sein wie beim Empfänger
-	private String hostname = "localhost";
-	private int port = 9876;
-	private int n_packets;
-	private int seqnum;
-	private int timeout = 1000;
+	private FileObject[] fileGather = null;	// muss dasselbe FileObject-Klasse sein wie beim Empfänger
+
+	private int port = 4711;
+	private int packetSum;
+	private int curSeq = 0;
+	private int timeout = 100000;
+	private boolean ack = false;
 	
-	private static final int PACKET_SIZE = 1024;
-	// brauchen keine sources - einfach die datei im selben verzeichnis wie das progg
-		
+	private static final int PACKET_SIZE = 1024 * 63;
+	private String hostname = "localhost";
+	private String sourceFile = "C:/Users/T500/file2send";
 	
 	public void sendUdpLoop() {
 		
 		try {
-			
+			CRC32 crc = new CRC32();
 			socket = new DatagramSocket();
 			InetAddress ipAddress = InetAddress.getByName(hostname);
-			
-			// fileObject Array, weil ich glaub, dass ich sonst nur 1 paket hab. und jetz pakete mit größe PACKET_SIZE erstellen kann
-			// nich sicher, ob ich header setzen muss, oder autogen.
-			for(int i = 0; i < n_packets ;i++){
-				fileObject[i] = readObject(PACKET_SIZE);
-				fileObject[i].setSeqnum(i);
-				fileObject[i].setChecksum(PACKET_SIZE);
-			}
+			boolean responseAck = false;
+			fileGather = getFileObject(PACKET_SIZE, sourceFile);
+			ByteArrayOutputStream bos = new ByteArrayOutputStream();
+			ObjectOutputStream oos = new ObjectOutputStream(bos);
+			byte[] data = {0};
+			DatagramPacket sendPacket = new DatagramPacket(data, curSeq);
 			
 			do{
-			ByteArrayOutputStream byteArrayOS = new ByteArrayOutputStream();
-			ObjectOutputStream os = new ObjectOutputStream(byteArrayOS);
-			os.writeObject(fileObject[seqnum]);
-			byte[] data = byteArrayOS.toByteArray();
-			byte[] incomingData = new byte[1024];
-			DatagramPacket sendPacket = new DatagramPacket(data,data.length,ipAddress, port);
-			socket.send(sendPacket);
-			System.out.println("Packet sent");
-			DatagramPacket incomingPacket = new DatagramPacket(incomingData, incomingData.length);
-			socket.setSoTimeout(timeout);
-			socket.receive(incomingPacket);
-			String response = new String(incomingPacket.getData());
-			System.out.println("Response from server:"+response);
+				if (ack == responseAck) {
+					// set ACK
+					ack = !ack;
+					fileGather[curSeq].setAck(ack);
+					// set Checksum
+					crc.update(serializeObject(fileGather[curSeq]));
+					fileGather[curSeq].setChecksum(crc.getValue());
 
-			
-			//--Incoming Packet/timeout auswerten und prüfen ob ack or nak. -> seqnum++ or do nothing.
-			seqnum++;
-			
-			
-			}while(seqnum <= n_packets);
-			
+					// create fileObject
+					oos.writeObject(fileGather[curSeq]);
+					data = bos.toByteArray();
+					sendPacket = new DatagramPacket(data, data.length, ipAddress, port);
+					curSeq++;
+				}
+
+				// send
+				socket.send(sendPacket);
+				System.out.println("Packet sent");
+				
+				// receive response
+				byte[] responseBuffer = new byte[1024];
+				DatagramPacket incomingPacket = new DatagramPacket(responseBuffer, responseBuffer.length);
+				
+				socket.setSoTimeout(timeout);
+				socket.receive(incomingPacket);
+				
+					// auswerten
+				byte[] responseData = incomingPacket.getData();
+				responseAck = responseData[0] != 0;	
+				
+				
+			} while (curSeq <= fileGather.length);
 
 	    } catch (UnknownHostException e) {
 	        e.printStackTrace();
@@ -73,44 +83,63 @@ public class CatchingFileSender {
 	    }
 	}
 	
-	
-	// gibt ein fileObject zurück
-	private FileObject readObject(int packetSize) {
-		FileObject fileObject = new FileObject();
-		String fileName = "fileToSend";
+	// gibt ein fileObject[] zurück
+	// checksum noch nicht gesettet
+	private FileObject[] getFileObject(int packetSize, String sourceFile) {
 	
 		// fileName = path
-		File file = new File(fileName);
-		n_packets = (int) Math.ceil(file.length()/packetSize);
+		File file = new File(sourceFile);
+		FileObject[] fileGather = null;
 		
 		// testet obs eine file ist
 		if (file.isFile()) {
+			int fileSize = (int) file.length();
+			System.out.println("Filesize: " + fileSize);
+			
+			packetSum = (int) Math.ceil(fileSize/packetSize);
+			System.out.println("packetSum: " + packetSum);
 		
 			try{
-				DataInputStream diStream = new DataInputStream(new FileInputStream(file));
-				long len = (int)file.length();
-				//byte[] fileBytes = new byte[(int) len];		// 
-//				int read = 0;
-//				int numRead = 0;
-//				while(read < fileBytes.length && (numRead = diStream.read(fileBytes,read,fileBytes.length - read)) >= 0){
-//					read = read +numRead;
-//				}
+				DataInputStream dis = new DataInputStream(new FileInputStream(file));
 				
-				// erzeugt fileObjects mit größe PACKET_SIZE
-				byte[] fileBytes = new byte[PACKET_SIZE];
-				byte[] trash = new byte[PACKET_SIZE];
-				diStream.read(trash,0,PACKET_SIZE);
-				diStream.read(fileBytes,0,(int)len - PACKET_SIZE * seqnum);
-				fileObject.setFileSize(len);
-				fileObject.setData(fileBytes);
-				diStream.close();
-			} catch (Exception e){
+				//File split
+				fileGather = new FileObject[packetSum];
+				byte[] objectData = new byte[packetSize];
+				
+				// last packet incl?
+				for (int i = 0; i < packetSum; i++) {
+					dis.read(objectData, 0, packetSize);
+					
+					fileGather[i] = new FileObject();
+					// setting FileObject
+					fileGather[i].setData(objectData);
+					fileGather[i].setFileSize(file.length());
+					fileGather[i].setFileName(sourceFile);
+					fileGather[i].setSeqnum(i);
+				
+					
+				}
+				dis.close();
+				
+			} catch (Exception e) {
                 e.printStackTrace();
             }
 		}
-		return fileObject;
+		
+		return fileGather;
 	}
 	
+	/**
+	 * @param fileObject
+	 * @return
+	 * @throws IOException
+	 */
+	private byte[] serializeObject(FileObject fileObject) throws IOException {
+		ByteArrayOutputStream bais = new ByteArrayOutputStream();
+		ObjectOutputStream oos = new ObjectOutputStream(bais);  
+		oos.writeObject(fileObject);
+		return bais.toByteArray();
+	}
 	
 	 public static void main(String... args) {
 	        CatchingFileSender fileSender = new CatchingFileSender();
