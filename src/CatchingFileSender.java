@@ -11,6 +11,8 @@ import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.zip.CRC32;
 
+//created by Nhu Huy Le & Matthias Yan Long
+
 public class CatchingFileSender {
 	
 	private DatagramSocket socket = null;
@@ -164,6 +166,8 @@ public class CatchingFileSender {
 	
 	 public static void main(String... args) {
 	        CatchingFileSender fileSender = new CatchingFileSender();
+	        fileSender.hostname = args[0];
+	        fileSender.sourceFile = args[1];
 	        fileSender.sendUdpLoop();
 	    }
 }
