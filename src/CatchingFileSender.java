@@ -14,8 +14,9 @@ import java.util.zip.CRC32;
 public class CatchingFileSender {
 	
 	private DatagramSocket socket = null;
-	private FileObject[] fileGather = null;	// muss dasselbe FileObject-Klasse sein wie beim Empfänger
-
+	
+	// muss diesselbe FileObject-Klasse sein wie beim Empfänger
+	private FileObject[] fileGather = null;	
 	private int port = 4711;
 	private int packetSum;
 	private int curSeq = 0;
@@ -33,51 +34,67 @@ public class CatchingFileSender {
 			socket = new DatagramSocket();
 			InetAddress ipAddress = InetAddress.getByName(hostname);
 			boolean responseAck = false;
+			byte[] data;
+			DatagramPacket sendPacket = null;
+			
+			// read and split
 			fileGather = getFileObject(PACKET_SIZE, sourceFile);
-			ByteArrayOutputStream bos = new ByteArrayOutputStream();
-			ObjectOutputStream oos = new ObjectOutputStream(bos);
-			byte[] data = {0};
-			DatagramPacket sendPacket = new DatagramPacket(data, curSeq);
 			
 			do{
+				ByteArrayOutputStream bos = new ByteArrayOutputStream();
+				ObjectOutputStream oos = new ObjectOutputStream(bos);
+
 				if (ack == responseAck) {
+					System.out.println();
+					System.out.println("ack: " + ack);
+
 					// set ACK
 					ack = !ack;
 					fileGather[curSeq].setAck(ack);
+
 					// set Checksum
 					crc.update(serializeObject(fileGather[curSeq]));
 					fileGather[curSeq].setChecksum(crc.getValue());
-
+					crc.reset();
+					
+					System.out.println("Packet-Ack: " + fileGather[curSeq].getAck());
+					System.out.println("Packet-SeqNo: " + fileGather[curSeq].getSeqnum());
+					System.out.println("Packet-Size: " + fileGather[curSeq].getData().length);
+					System.out.println("Packet-CRC: " + fileGather[curSeq].getChecksum());
+					
 					// create fileObject
 					oos.writeObject(fileGather[curSeq]);
 					data = bos.toByteArray();
 					sendPacket = new DatagramPacket(data, data.length, ipAddress, port);
 					curSeq++;
+					System.out.println("TO: " + sendPacket.getSocketAddress());
 				}
 
 				// send
+				System.out.print("packet sending...");
 				socket.send(sendPacket);
-				System.out.println("Packet sent");
-				
+				System.out.println("done.");
+
 				// receive response
+				System.out.print("receive response...");
 				byte[] responseBuffer = new byte[1024];
 				DatagramPacket incomingPacket = new DatagramPacket(responseBuffer, responseBuffer.length);
 				
 				socket.setSoTimeout(timeout);
 				socket.receive(incomingPacket);
+				System.out.println("done.");
 				
-					// auswerten
+				// auswerten
 				byte[] responseData = incomingPacket.getData();
-				responseAck = responseData[0] != 0;	
+				responseAck = responseData[0] != 0;
+				System.out.println("responseAck: " + responseAck);
 				
-				
-			} while (curSeq <= fileGather.length);
+			} while (curSeq < fileGather.length);
 
 	    } catch (UnknownHostException e) {
 	        e.printStackTrace();
 	    } catch (SocketException e) {
 	        e.printStackTrace();
-	        //kein ack
 	    } catch (IOException e) {
 	        e.printStackTrace();
 	    }
@@ -87,37 +104,41 @@ public class CatchingFileSender {
 	// checksum noch nicht gesettet
 	private FileObject[] getFileObject(int packetSize, String sourceFile) {
 	
-		// fileName = path
+		// load fileName = path
+		System.out.print("loading file...");
 		File file = new File(sourceFile);
+		System.out.println("done.");
+		System.out.println("Source: " + sourceFile);
+		
 		FileObject[] fileGather = null;
 		
 		// testet obs eine file ist
 		if (file.isFile()) {
 			int fileSize = (int) file.length();
-			System.out.println("Filesize: " + fileSize);
+			System.out.println("File-Size: " + fileSize);
 			
-			packetSum = (int) Math.ceil(fileSize/packetSize);
-			System.out.println("packetSum: " + packetSum);
+			// -- -1 (last packet lost)
+				// -- ceiling wrong ?
+			packetSum = (int) Math.ceil(fileSize/packetSize) + 1;
+			System.out.println("Packet Sum: " + packetSum);
 		
 			try{
 				DataInputStream dis = new DataInputStream(new FileInputStream(file));
 				
 				//File split
 				fileGather = new FileObject[packetSum];
-				byte[] objectData = new byte[packetSize];
-				
-				// last packet incl?
-				for (int i = 0; i < packetSum; i++) {
-					dis.read(objectData, 0, packetSize);
+				byte[] objectData;
+
+				for (int i = 0; i < packetSum; i++) {					
+					objectData = new byte[packetSize];					
+					dis.read(objectData);
 					
-					fileGather[i] = new FileObject();
 					// setting FileObject
+					fileGather[i] = new FileObject();
 					fileGather[i].setData(objectData);
 					fileGather[i].setFileSize(file.length());
 					fileGather[i].setFileName(sourceFile);
 					fileGather[i].setSeqnum(i);
-				
-					
 				}
 				dis.close();
 				
